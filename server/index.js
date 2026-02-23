@@ -14,6 +14,12 @@ const DB = 'chatapp';
 let db;
 
 async function connect() {
+  if (!URI || !URI.trim()) {
+    throw new Error(
+      'MongoDB URI missing. Add REACT_APP_MONGODB_URI to your .env file.\n' +
+      'Get a free connection string at https://www.mongodb.com/cloud/atlas'
+    );
+  }
   const client = await MongoClient.connect(URI);
   db = client.db(DB);
   console.log('MongoDB connected');
