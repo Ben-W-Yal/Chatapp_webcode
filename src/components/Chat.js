@@ -597,10 +597,29 @@ ${sessionJsonData.length > 10 ? `\n... (${sessionJsonData.length - 10} more item
       );
     }
 
-    // Save plain text + any tool charts to DB
-    const savedContent = streamContentRef.current.parts
+    // Deterministic name greeting: first assistant message per session MUST address user by name
+    let savedContent = streamContentRef.current.parts
       ? streamContentRef.current.parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n')
       : streamContentRef.current.full;
+    const isFirstMessage = history.length === 0;
+    if (isFirstMessage && displayName && savedContent && !savedContent.slice(0, 120).includes(displayName)) {
+      const greeting = `Hi ${displayName}! `;
+      savedContent = greeting + savedContent;
+      streamContentRef.current.full = greeting + streamContentRef.current.full;
+      if (streamContentRef.current.parts) {
+        const textParts = streamContentRef.current.parts.filter((p) => p.type === 'text');
+        if (textParts.length > 0) {
+          textParts[0].text = greeting + (textParts[0].text || '');
+        } else {
+          streamContentRef.current.parts.unshift({ type: 'text', text: greeting });
+        }
+      }
+      setMessages((m) =>
+        m.map((msg) =>
+          msg.id === assistantId ? { ...msg, content: streamContentRef.current.full, parts: streamContentRef.current.parts } : msg
+        )
+      );
+    }
     await saveMessage(
       sessionId,
       'model',

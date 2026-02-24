@@ -100,7 +100,7 @@ export const CSV_TOOL_DECLARATIONS = [
     name: 'play_video',
     description:
       'Play or open a YouTube video from the loaded channel data. ' +
-      'User can specify by title (e.g. "play the asbestos video"), ordinal (e.g. "play the first video"), or "most viewed". ' +
+      'User can specify by title (e.g. "play the asbestos video"), ordinal (e.g. "first", "second", "third", "2nd", "3", "4"), or "most viewed"/"least viewed". ' +
       'Returns a clickable card with title and thumbnail that opens the video in a new tab.',
     parameters: {
       type: 'OBJECT',
@@ -462,11 +462,20 @@ export const executeTool = async (toolName, args, rows, userImages = []) => {
     }
 
     case 'play_video': {
-      const sel = String(args.selector || '').toLowerCase();
+      const sel = String(args.selector || '').toLowerCase().trim();
       let video = null;
       const hasUrl = (r) => r.video_url || r.url;
       const getViews = (r) => parseFloat(r.view_count || r.views || 0) || 0;
-      if (sel === 'first' || sel === '1') {
+      // Ordinal mapping: first/1, second/2/2nd, third/3/3rd, fourth/4, fifth/5, etc.
+      const ORDINALS = {
+        first: 1, 1: 1, second: 2, 2: 2, '2nd': 2, third: 3, 3: 3, '3rd': 3,
+        fourth: 4, 4: 4, '4th': 4, fifth: 5, 5: 5, '5th': 5, sixth: 6, 6: 6,
+        seventh: 7, 7: 7, eighth: 8, 8: 8, ninth: 9, 9: 9, tenth: 10, 10: 10,
+      };
+      const ordinalIdx = ORDINALS[sel] ?? (parseInt(sel, 10) >= 1 ? parseInt(sel, 10) : null);
+      if (ordinalIdx != null && ordinalIdx >= 1 && ordinalIdx <= rows.length) {
+        video = rows[ordinalIdx - 1];
+      } else if (sel === 'first' || sel === '1') {
         video = rows[0];
       } else if (sel === 'last' || sel === 'most recent') {
         video = rows[rows.length - 1];
@@ -478,7 +487,7 @@ export const executeTool = async (toolName, args, rows, userImages = []) => {
         video = rows.find((r) => (r.title || '').toLowerCase().includes(sel));
       }
       if (!video || !hasUrl(video))
-        return { error: `Video not found for "${args.selector}". Try "first", "most viewed", or a title keyword.` };
+        return { error: `Video not found for "${args.selector}". Try "first", "second", "third", "most viewed", or a title keyword.` };
       return {
         _videoCard: true,
         title: video.title || 'Video',
