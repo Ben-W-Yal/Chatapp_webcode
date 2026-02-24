@@ -95,15 +95,12 @@ app.post('/api/generate-image', async (req, res) => {
 
 app.post('/api/youtube/channel', async (req, res) => {
   try {
-    const { url, maxVideos = 10, saveToPublic } = req.body;
+    const { url, maxVideos = 10 } = req.body;
     if (!url) return res.status(400).json({ error: 'Channel URL required' });
     const max = Math.min(Math.max(parseInt(maxVideos, 10) || 10, 1), 100);
     const videos = await fetchChannelVideos(url, max);
-    if (saveToPublic && videos.length > 0) {
-      const publicDir = path.join(__dirname, '..', 'public');
-      const filePath = path.join(publicDir, 'veritasium-channel-data.json');
-      fs.writeFileSync(filePath, JSON.stringify(videos, null, 2), 'utf8');
-    }
+    // Do NOT write to public/ — the committed veritasium-channel-data.json is the canonical credible sample.
+    // Users download JSON via the UI button instead.
     res.json({ videos });
   } catch (err) {
     res.status(500).json({ error: err.message });

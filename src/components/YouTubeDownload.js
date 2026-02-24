@@ -28,14 +28,12 @@ export default function YouTubeDownload() {
     }, 500);
 
     try {
-      const isVeritasium = /veritasium/i.test(trimmed);
       const data = await fetch(`${API}/api/youtube/channel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url: trimmed,
           maxVideos: Math.min(Math.max(maxVideos, 1), 100),
-          saveToPublic: isVeritasium && maxVideos === 10,
         }),
       });
       const json = await data.json();
