@@ -15,7 +15,8 @@ services:
         sync: false   # set manually in the Render dashboard
 
   # ── Frontend: React static site ────────────────────────────────────────────
-  - type: static
+  - type: web
+    runtime: static
     name: chatapp-frontend
     plan: free
     buildCommand: npm install && ./node_modules/.bin/react-scripts build

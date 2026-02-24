@@ -1,8 +1,11 @@
 require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const { fetchChannelVideos } = require('./youtube');
 
 const app = express();
 app.use(cors());
@@ -39,6 +42,40 @@ app.get('/', (req, res) => {
   `);
 });
 
+// ── YouTube channel download ───────────────────────────────────────────────────
+
+// ── Image generation (placeholder — requires Gemini Imagen or similar API) ─ ─
+
+app.post('/api/generate-image', async (req, res) => {
+  try {
+    const { prompt, anchorImageBase64 } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'Prompt required' });
+    // TODO: Integrate with Gemini Imagen or similar API for real image generation
+    // For now return a placeholder
+    const placeholder = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    res.json({ imageBase64: placeholder, mimeType: 'image/png' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/youtube/channel', async (req, res) => {
+  try {
+    const { url, maxVideos = 10, saveToPublic } = req.body;
+    if (!url) return res.status(400).json({ error: 'Channel URL required' });
+    const max = Math.min(Math.max(parseInt(maxVideos, 10) || 10, 100), 100);
+    const videos = await fetchChannelVideos(url, max);
+    if (saveToPublic && videos.length > 0) {
+      const publicDir = path.join(__dirname, '..', 'public');
+      const filePath = path.join(publicDir, 'veritasium-channel-data.json');
+      fs.writeFileSync(filePath, JSON.stringify(videos, null, 2), 'utf8');
+    }
+    res.json({ videos });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/status', async (req, res) => {
   try {
     const usersCount = await db.collection('users').countDocuments();
@@ -53,7 +90,7 @@ app.get('/api/status', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   try {
-    const { username, password, email } = req.body;
+    const { username, password, email, firstName, lastName } = req.body;
     if (!username || !password)
       return res.status(400).json({ error: 'Username and password required' });
     const name = String(username).trim().toLowerCase();
@@ -64,6 +101,8 @@ app.post('/api/users', async (req, res) => {
       username: name,
       password: hashed,
       email: email ? String(email).trim().toLowerCase() : null,
+      firstName: firstName ? String(firstName).trim() : null,
+      lastName: lastName ? String(lastName).trim() : null,
       createdAt: new Date().toISOString(),
     });
     res.json({ ok: true });
@@ -82,7 +121,12 @@ app.post('/api/users/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'User not found' });
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: 'Invalid password' });
-    res.json({ ok: true, username: name });
+    res.json({
+      ok: true,
+      username: name,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

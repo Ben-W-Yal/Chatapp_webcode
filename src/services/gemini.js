@@ -172,7 +172,7 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
 
     const { name, args } = funcCall.functionCall;
     console.log('[CSV Tool]', name, args);
-    const toolResult = executeFn(name, args);
+    const toolResult = await Promise.resolve(executeFn(name, args));
     console.log('[CSV Tool result]', toolResult);
 
     // Log the call for persistence

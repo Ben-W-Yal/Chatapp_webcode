@@ -5,3 +5,42 @@
 .App {
   min-height: 100vh;
 }
+
+.app-with-tabs {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0.5rem 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.app-tabs button {
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 0.95rem;
+  border-radius: 6px;
+}
+
+.app-tabs button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.app-tabs button.active {
+  color: #fff;
+  background: rgba(99, 102, 241, 0.4);
+}
+
+.app-tabs .app-logout {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.6);
+}

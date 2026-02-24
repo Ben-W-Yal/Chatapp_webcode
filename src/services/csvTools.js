@@ -63,6 +63,76 @@ export const CSV_TOOL_DECLARATIONS = [
       required: ['sort_column'],
     },
   },
+  {
+    name: 'compute_stats_json',
+    description:
+      'Compute mean, median, standard deviation, min, and max for any numeric field in the channel JSON. ' +
+      'Use when the user asks for statistics, average, or distribution of a numeric column. ' +
+      'Common fields: view_count, like_count, comment_count, duration_seconds.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        column: {
+          type: 'STRING',
+          description: 'Exact field name from the JSON (e.g. view_count, like_count, comment_count, duration_seconds).',
+        },
+      },
+      required: ['column'],
+    },
+  },
+  {
+    name: 'plot_metric_vs_time',
+    description:
+      'Plot any numeric field (views, likes, comments, etc.) vs time for channel videos. ' +
+      'Returns a chart. Use when the user asks to visualize a metric over time.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        metric: {
+          type: 'STRING',
+          description: 'Numeric field to plot (e.g. view_count, like_count, comment_count).',
+        },
+      },
+      required: ['metric'],
+    },
+  },
+  {
+    name: 'play_video',
+    description:
+      'Play or open a YouTube video from the loaded channel data. ' +
+      'User can specify by title (e.g. "play the asbestos video"), ordinal (e.g. "play the first video"), or "most viewed". ' +
+      'Returns a clickable card with title and thumbnail that opens the video in a new tab.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        selector: {
+          type: 'STRING',
+          description: 'How to pick the video: "first", "last", "most viewed", "least viewed", or a partial title match.',
+        },
+      },
+      required: ['selector'],
+    },
+  },
+  {
+    name: 'generateImage',
+    description:
+      'Generate an image from a text prompt and an optional anchor/reference image. ' +
+      'Use when the user wants to create or edit an image. The anchor image provides style or context.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        prompt: {
+          type: 'STRING',
+          description: 'Text description of the image to generate.',
+        },
+        anchorImageBase64: {
+          type: 'STRING',
+          description: 'Optional base64-encoded reference image for style/context.',
+        },
+      },
+      required: ['prompt'],
+    },
+  },
 ];
 
 // ── Parse a CSV line, respecting quoted fields ────────────────────────────────
@@ -254,9 +324,11 @@ export const computeDatasetSummary = (rows, headers) => {
   return lines.join('\n');
 };
 
+const getApi = () => (typeof process !== 'undefined' && process.env?.REACT_APP_API_URL) || '';
+
 // ── Client-side tool executor ─────────────────────────────────────────────────
 
-export const executeTool = (toolName, args, rows) => {
+export const executeTool = async (toolName, args, rows) => {
   const availableHeaders = rows.length ? Object.keys(rows[0]) : [];
   console.group(`[CSV Tool] ${toolName}`);
   console.log('args:', args);
@@ -345,6 +417,89 @@ export const executeTool = (toolName, args, rows) => {
         count: topRows.length,
         tweets: topRows,
       };
+    }
+
+    case 'compute_stats_json': {
+      const col = resolveCol(rows, args.column);
+      const vals = numericValues(rows, col);
+      if (!vals.length)
+        return { error: `No numeric values in "${col}". Available: ${availableHeaders.join(', ')}` };
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const sorted = [...vals].sort((a, b) => a - b);
+      const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+      return {
+        column: col,
+        count: vals.length,
+        mean: fmt(mean),
+        median: fmt(median(sorted)),
+        std: fmt(Math.sqrt(variance)),
+        min: Math.min(...vals),
+        max: Math.max(...vals),
+      };
+    }
+
+    case 'plot_metric_vs_time': {
+      const metric = resolveCol(rows, args.metric) || args.metric;
+      const dateCol = availableHeaders.find((h) => /release_date|date|published/i.test(h)) || 'release_date';
+      const chartData = rows
+        .map((r) => ({
+          date: r[dateCol] || '',
+          value: parseFloat(r[metric]),
+          name: (r.title || r.name || '').slice(0, 30),
+        }))
+        .filter((d) => !isNaN(d.value) && d.date)
+        .sort((a, b) => new Date(a.date) - new Date(b.date));
+      if (!chartData.length)
+        return { error: `No valid data for ${metric} vs time. Check field names.` };
+      return {
+        _chartType: 'metricVsTime',
+        data: chartData,
+        metricColumn: metric,
+      };
+    }
+
+    case 'play_video': {
+      const sel = String(args.selector || '').toLowerCase();
+      let video = null;
+      const hasUrl = (r) => r.video_url || r.url;
+      const getViews = (r) => parseFloat(r.view_count || r.views || 0) || 0;
+      if (sel === 'first' || sel === '1') {
+        video = rows[0];
+      } else if (sel === 'last' || sel === 'most recent') {
+        video = rows[rows.length - 1];
+      } else if (sel === 'most viewed' || sel === 'most views') {
+        video = [...rows].sort((a, b) => getViews(b) - getViews(a))[0];
+      } else if (sel === 'least viewed') {
+        video = [...rows].sort((a, b) => getViews(a) - getViews(b))[0];
+      } else {
+        video = rows.find((r) => (r.title || '').toLowerCase().includes(sel));
+      }
+      if (!video || !hasUrl(video))
+        return { error: `Video not found for "${args.selector}". Try "first", "most viewed", or a title keyword.` };
+      return {
+        _videoCard: true,
+        title: video.title || 'Video',
+        thumbnail: video.thumbnail || '',
+        url: video.video_url || video.url,
+      };
+    }
+
+    case 'generateImage': {
+      try {
+        const res = await fetch(`${getApi()}/api/generate-image`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: args.prompt,
+            anchorImageBase64: args.anchorImageBase64 || null,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Image generation failed');
+        return { _generatedImage: true, data: data.imageBase64, mimeType: data.mimeType || 'image/png' };
+      } catch (err) {
+        return { error: err.message || 'Image generation failed' };
+      }
     }
 
     default:

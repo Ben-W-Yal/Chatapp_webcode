@@ -18,6 +18,7 @@ Create a `.env` file in the project root with:
 | `REACT_APP_GEMINI_API_KEY` | Yes | Frontend (baked in at build) | Google Gemini API key. Get one at [Google AI Studio](https://aistudio.google.com/apikey). |
 | `REACT_APP_MONGODB_URI` | Yes | Backend | MongoDB Atlas connection string. Format: `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/` |
 | `REACT_APP_API_URL` | Production only | Frontend (baked in at build) | Full URL of the backend, e.g. `https://your-backend.onrender.com`. Leave blank for local dev (proxy handles it). |
+| `YOUTUBE_API_KEY` | Optional | Backend | For YouTube Channel Download. Enable [YouTube Data API v3](https://console.cloud.google.com/) and create an API key. |
 
 The backend also accepts `MONGODB_URI` or `REACT_APP_MONGO_URI` as the MongoDB connection string if you prefer those names.
 
@@ -47,6 +48,8 @@ One document per registered user.
 |-------|------|-------------|
 | `_id` | ObjectId | Auto-generated |
 | `username` | string | Lowercase username |
+| `firstName` | string | First name (optional) |
+| `lastName` | string | Last name (optional) |
 | `password` | string | bcrypt hash |
 | `email` | string | Email address (optional) |
 | `createdAt` | string | ISO timestamp |

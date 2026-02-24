@@ -975,3 +975,83 @@
 .chat-empty-state p {
   margin: 0;
 }
+
+/* ── Video card (play_video tool) ─────────────────────────────────────────── */
+
+.video-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  text-decoration: none;
+  color: #fff;
+  transition: background 0.2s;
+}
+
+.video-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.video-card-thumb {
+  width: 120px;
+  height: 68px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.video-card-title {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+/* ── Generated image (generateImage tool) ─────────────────────────────────── */
+
+.generated-image-wrap {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+}
+
+.generated-image {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.generated-image-download {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  color: #818cf8;
+  text-decoration: none;
+}
+
+.generated-image-download:hover {
+  text-decoration: underline;
+}
+
+/* ── Metric vs time chart ─────────────────────────────────────────────────── */
+
+.metric-vs-time-chart {
+  margin: 1rem 0 0.4rem;
+  padding: 1rem 0.5rem 0.5rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+}
+
+.metric-chart-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+  margin: 0 0 0.5rem;
+}
