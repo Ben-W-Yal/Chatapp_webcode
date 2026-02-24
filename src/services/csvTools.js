@@ -440,10 +440,13 @@ export const executeTool = async (toolName, args, rows, userImages = []) => {
 
     case 'plot_metric_vs_time': {
       const metric = resolveCol(rows, args.metric) || args.metric;
-      const dateCol = availableHeaders.find((h) => /release_date|date|published/i.test(h)) || 'release_date';
+      // Prefer published_at (ISO) for proper time ordering; fallback to release_date
+      const dateCol = availableHeaders.find((h) => /^published_at$/i.test(h))
+        || availableHeaders.find((h) => /release_date|date|published/i.test(h))
+        || 'published_at';
       const chartData = rows
         .map((r) => ({
-          date: r[dateCol] || '',
+          date: r[dateCol] || r.published_at || r.release_date || '',
           value: parseFloat(r[metric]),
           name: (r.title || r.name || '').slice(0, 30),
         }))

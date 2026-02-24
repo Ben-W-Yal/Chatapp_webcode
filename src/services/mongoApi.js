@@ -39,10 +39,23 @@ export const getSessions = async (username) => {
   return api(`/api/sessions?username=${encodeURIComponent(username)}`);
 };
 
-export const createSession = async (username, agent = null, title = null) => {
+export const createSession = async (username, agent = null, title = null, jsonData = null) => {
+  const body = { username, agent, title };
+  if (Array.isArray(jsonData) && jsonData.length > 0) body.jsonData = jsonData;
   return api('/api/sessions', {
     method: 'POST',
-    body: JSON.stringify({ username, agent, title }),
+    body: JSON.stringify(body),
+  });
+};
+
+export const loadSessionJson = async (sessionId) => {
+  return api(`/api/sessions/${sessionId}/json`);
+};
+
+export const saveSessionJson = async (sessionId, jsonData) => {
+  return api(`/api/sessions/${sessionId}/json`, {
+    method: 'PUT',
+    body: JSON.stringify({ jsonData }),
   });
 };
 

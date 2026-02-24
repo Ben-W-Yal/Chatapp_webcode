@@ -9,6 +9,8 @@ import {
   deleteSession,
   saveMessage,
   loadMessages,
+  loadSessionJson,
+  saveSessionJson,
 } from '../services/mongoApi';
 import EngagementChart from './EngagementChart';
 import MetricVsTimeChart from './MetricVsTimeChart';
@@ -155,6 +157,8 @@ export default function Chat({ user, onLogout }) {
   useEffect(() => {
     if (!activeSessionId || activeSessionId === 'new') {
       setMessages([]);
+      setJsonContext(null);
+      setSessionJsonData(null);
       return;
     }
     // If a session was just created during an active send, messages are already
@@ -164,7 +168,18 @@ export default function Chat({ user, onLogout }) {
       return;
     }
     setMessages([]);
+    setJsonContext(null);
+    setSessionJsonData(null);
     loadMessages(activeSessionId).then(setMessages);
+    loadSessionJson(activeSessionId)
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const summary = `JSON array with ${data.length} items. Keys: ${Object.keys(data[0] || {}).join(', ')}`;
+          setJsonContext({ name: 'channel-data.json', summary });
+          setSessionJsonData(data);
+        }
+      })
+      .catch(() => {});
   }, [activeSessionId]);
 
   useEffect(() => {
@@ -262,6 +277,9 @@ export default function Chat({ user, onLogout }) {
       if (parsed) {
         setJsonContext({ name: parsed.name, summary: parsed.summary });
         setSessionJsonData(parsed.data);
+        if (activeSessionId && activeSessionId !== 'new') {
+          saveSessionJson(activeSessionId, parsed.data).catch(() => {});
+        }
       }
     }
 
@@ -306,6 +324,9 @@ export default function Chat({ user, onLogout }) {
       if (parsed) {
         setJsonContext({ name: parsed.name, summary: parsed.summary });
         setSessionJsonData(parsed.data);
+        if (activeSessionId && activeSessionId !== 'new') {
+          saveSessionJson(activeSessionId, parsed.data).catch(() => {});
+        }
       }
     }
 
@@ -371,7 +392,7 @@ export default function Chat({ user, onLogout }) {
     let sessionId = activeSessionId;
     if (sessionId === 'new') {
       const title = chatTitle();
-      const { id } = await createSession(username, 'lisa', title);
+      const { id } = await createSession(username, 'lisa', title, sessionJsonData);
       sessionId = id;
       justCreatedSessionRef.current = true; // tell useEffect to skip the reload
       setActiveSessionId(id);

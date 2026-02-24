@@ -154,6 +154,109 @@ async function getTranscript(videoId) {
   }
 }
 
+// Parse relative date strings ("6 days ago", "3 weeks ago") to ISO 8601
+function relativeToIso(rel) {
+  if (!rel || typeof rel !== 'string') return null;
+  const s = rel.trim().toLowerCase();
+  const dayMatch = s.match(/^(\d+)\s*days?\s*ago$/);
+  if (dayMatch) {
+    const d = new Date();
+    d.setDate(d.getDate() - parseInt(dayMatch[1], 10));
+    return d.toISOString();
+  }
+  const weekMatch = s.match(/^(\d+)\s*weeks?\s*ago$/);
+  if (weekMatch) {
+    const d = new Date();
+    d.setDate(d.getDate() - parseInt(weekMatch[1], 10) * 7);
+    return d.toISOString();
+  }
+  const monthMatch = s.match(/^(\d+)\s*months?\s*ago$/);
+  if (monthMatch) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - parseInt(monthMatch[1], 10));
+    return d.toISOString();
+  }
+  const yearMatch = s.match(/^(\d+)\s*years?\s*ago$/);
+  if (yearMatch) {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - parseInt(yearMatch[1], 10));
+    return d.toISOString();
+  }
+  if (/^(today|hour)\s*ago?$/i.test(s)) return new Date().toISOString();
+  return null;
+}
+
+// ── YouTube Data API (full metadata when key is set) ──────────────────────────
+
+async function fetchWithApi(inputUrl, maxVideos, onProgress) {
+  const parsed = parseChannelOrVideoUrl(inputUrl);
+  if (!parsed) throw new Error('Invalid YouTube URL.');
+
+  onProgress?.({ step: 'Resolving channel', progress: 5 });
+
+  let channelId;
+  if (parsed.type === 'videoId') {
+    const res = await api('/videos', { part: 'snippet', id: parsed.value });
+    const vid = res.items?.[0];
+    channelId = vid?.snippet?.channelId || null;
+  } else {
+    channelId = await getChannelId(parsed);
+  }
+  if (!channelId) throw new Error('Channel not found');
+
+  onProgress?.({ step: 'Fetching playlist', progress: 15 });
+  const playlistId = await getUploadsPlaylistId(channelId);
+  if (!playlistId) throw new Error('Could not get uploads playlist');
+
+  onProgress?.({ step: 'Fetching video IDs', progress: 25 });
+  const videoIds = await getPlaylistVideoIds(playlistId, maxVideos);
+
+  onProgress?.({ step: 'Fetching video details', progress: 35 });
+  const items = await getVideoDetails(videoIds);
+  const total = items.length;
+  const results = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const progress = 40 + Math.round((i / total) * 55);
+    onProgress?.({ step: `Processing ${item.snippet?.title || 'video'}`, progress });
+
+    const videoId = item.id;
+    const snippet = item.snippet || {};
+    const stats = item.statistics || {};
+    const content = item.contentDetails || {};
+
+    const durationSeconds = parseDuration(content.duration);
+    let transcript = null;
+    try {
+      transcript = await getTranscript(videoId);
+    } catch {
+      // optional
+    }
+
+    const thumb = snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || null;
+
+    results.push({
+      video_id: videoId,
+      video_url: `https://www.youtube.com/watch?v=${videoId}`,
+      title: snippet.title || '',
+      description: (snippet.description || '').trim().slice(0, 5000),
+      transcript: transcript || '',
+      duration: durationSeconds != null ? formatDuration(durationSeconds) : null,
+      duration_seconds: durationSeconds,
+      published_at: snippet.publishedAt || null,
+      release_date: snippet.publishedAt ? new Date(snippet.publishedAt).toLocaleDateString() : null,
+      view_count: parseInt(stats.viewCount, 10) || 0,
+      like_count: parseInt(stats.likeCount, 10) || 0,
+      comment_count: parseInt(stats.commentCount, 10) || 0,
+      thumbnail: thumb,
+    });
+  }
+
+  onProgress?.({ step: 'Done', progress: 100 });
+  return results;
+}
+
 // ── Fallback: youtubei (no API key) ───────────────────────────────────────────
 
 async function fetchWithYoutubei(inputUrl, maxVideos, onProgress) {
@@ -213,15 +316,19 @@ async function fetchWithYoutubei(inputUrl, maxVideos, onProgress) {
     const thumbObj = Array.isArray(v.thumbnails) ? v.thumbnails[0] : v.thumbnails;
     const thumb = thumbObj?.url || null;
 
+    const relDate = v.uploadDate || null;
+    const publishedAt = relativeToIso(relDate);
+
     results.push({
       video_id: v.id,
       video_url: `https://www.youtube.com/watch?v=${v.id}`,
       title: v.title || '',
-      description: v.description || '',
-      transcript,
+      description: (v.description || '').trim().slice(0, 5000),
+      transcript: transcript || '',
       duration: v.duration ? `${Math.floor(v.duration / 60)}m ${v.duration % 60}s` : null,
       duration_seconds: v.duration || null,
-      release_date: v.uploadDate || null,
+      published_at: publishedAt,
+      release_date: relDate,
       view_count: v.viewCount || 0,
       like_count: v.likeCount || 0,
       comment_count: v.commentCount || 0,
@@ -234,12 +341,14 @@ async function fetchWithYoutubei(inputUrl, maxVideos, onProgress) {
 }
 
 // Main export: fetch channel videos with metadata
-// Uses youtubei — no API key required.
-// Accepts channel URLs (youtube.com/@handle, youtube.com/channel/UCxxx) or video URLs (youtube.com/watch?v=xxx)
+// Uses YouTube Data API when YOUTUBE_API_KEY is set (full metadata); else youtubei (no key).
 async function fetchChannelVideos(inputUrl, maxVideos = 10, onProgress) {
   const parsed = parseChannelOrVideoUrl(inputUrl);
   if (!parsed) throw new Error('Invalid YouTube URL. Use a channel or video URL.');
 
+  if (API_KEY) {
+    return fetchWithApi(inputUrl, maxVideos, onProgress);
+  }
   return fetchWithYoutubei(inputUrl, maxVideos, onProgress);
 }
 

@@ -193,16 +193,19 @@ app.get('/api/sessions', async (req, res) => {
 
 app.post('/api/sessions', async (req, res) => {
   try {
-    const { username, agent } = req.body;
+    const { username, agent, title, jsonData } = req.body;
     if (!username) return res.status(400).json({ error: 'username required' });
-    const { title } = req.body;
-    const result = await db.collection('sessions').insertOne({
+    const doc = {
       username,
       agent: agent || null,
       title: title || null,
       createdAt: new Date().toISOString(),
       messages: [],
-    });
+    };
+    if (Array.isArray(jsonData) && jsonData.length > 0) {
+      doc.jsonData = jsonData;
+    }
+    const result = await db.collection('sessions').insertOne(doc);
     res.json({ id: result.insertedId.toString() });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -224,6 +227,33 @@ app.patch('/api/sessions/:id/title', async (req, res) => {
     await db.collection('sessions').updateOne(
       { _id: new ObjectId(req.params.id) },
       { $set: { title } }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/sessions/:id/json', async (req, res) => {
+  try {
+    const doc = await db.collection('sessions').findOne(
+      { _id: new ObjectId(req.params.id) },
+      { projection: { jsonData: 1 } }
+    );
+    const data = doc?.jsonData;
+    res.json(Array.isArray(data) ? data : []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/sessions/:id/json', async (req, res) => {
+  try {
+    const { jsonData } = req.body;
+    if (!Array.isArray(jsonData)) return res.status(400).json({ error: 'jsonData must be an array' });
+    await db.collection('sessions').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { jsonData } }
     );
     res.json({ ok: true });
   } catch (err) {
