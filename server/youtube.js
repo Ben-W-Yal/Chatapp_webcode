@@ -177,67 +177,12 @@ async function fetchWithYoutubei(channelUrl, maxVideos, onProgress) {
 }
 
 // Main export: fetch channel videos with metadata
+// Uses youtubei — no API key required.
 async function fetchChannelVideos(channelUrl, maxVideos = 10, onProgress) {
   const parsed = parseChannelUrl(channelUrl);
   if (!parsed) throw new Error('Invalid YouTube channel URL');
 
-  // Use youtubei (no key) when API_KEY is not set or empty
-  if (!API_KEY || API_KEY === '') {
-    return fetchWithYoutubei(channelUrl, maxVideos, onProgress);
-  }
-
-  onProgress?.({ step: 'Resolving channel', progress: 0 });
-
-  const channelId = await getChannelId(parsed);
-  if (!channelId) throw new Error('Channel not found');
-
-  onProgress?.({ step: 'Getting uploads', progress: 10 });
-
-  const uploadsId = await getUploadsPlaylistId(channelId);
-  if (!uploadsId) throw new Error('Could not get uploads playlist');
-
-  onProgress?.({ step: 'Fetching video list', progress: 20 });
-
-  const videoIds = await getPlaylistVideoIds(uploadsId, maxVideos);
-  if (!videoIds.length) throw new Error('No videos found');
-
-  onProgress?.({ step: 'Fetching video details', progress: 30 });
-
-  const details = await getVideoDetails(videoIds);
-  const total = details.length;
-  const results = [];
-
-  for (let i = 0; i < details.length; i++) {
-    const d = details[i];
-    const progress = 30 + Math.round((i / total) * 60);
-    onProgress?.({ step: `Processing ${d.snippet?.title || 'video'}`, progress });
-
-    let transcript = null;
-    try {
-      transcript = await getTranscript(d.id);
-    } catch {
-      // transcript optional
-    }
-
-    results.push({
-      video_id: d.id,
-      video_url: `https://www.youtube.com/watch?v=${d.id}`,
-      title: d.snippet?.title || '',
-      description: d.snippet?.description || '',
-      transcript: transcript || null,
-      duration: formatDuration(parseDuration(d.contentDetails?.duration)),
-      duration_seconds: parseDuration(d.contentDetails?.duration),
-      release_date: d.snippet?.publishedAt || null,
-      view_count: parseInt(d.statistics?.viewCount || 0, 10),
-      like_count: parseInt(d.statistics?.likeCount || 0, 10),
-      comment_count: parseInt(d.statistics?.commentCount || 0, 10),
-      thumbnail: d.snippet?.thumbnails?.medium?.url || d.snippet?.thumbnails?.default?.url || null,
-    });
-  }
-
-  onProgress?.({ step: 'Done', progress: 100 });
-
-  return results;
+  return fetchWithYoutubei(channelUrl, maxVideos, onProgress);
 }
 
 module.exports = { fetchChannelVideos };
