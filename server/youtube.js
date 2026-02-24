@@ -1,7 +1,8 @@
-// YouTube channel data fetcher — uses YouTube Data API v3
-// Requires YOUTUBE_API_KEY in env. Get one at https://console.cloud.google.com/
+// YouTube channel data fetcher
+// Option 1: YOUTUBE_API_KEY in env (official API) — get at https://console.cloud.google.com/
+// Option 2: No key — uses youtubei package (unofficial, no key required)
 
-const API_KEY = process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY;
+const API_KEY = (process.env.YOUTUBE_API_KEY || process.env.REACT_APP_YOUTUBE_API_KEY || '').trim();
 const BASE = 'https://www.googleapis.com/youtube/v3';
 
 function api(path, params = {}) {
@@ -104,12 +105,86 @@ async function getTranscript(videoId) {
   }
 }
 
-// Main export: fetch channel videos with metadata
-async function fetchChannelVideos(channelUrl, maxVideos = 10, onProgress) {
-  if (!API_KEY) throw new Error('YOUTUBE_API_KEY not set in environment');
+// ── Fallback: youtubei (no API key) ───────────────────────────────────────────
+
+async function fetchWithYoutubei(channelUrl, maxVideos, onProgress) {
+  const { Client } = require('youtubei');
+  const yt = new Client();
 
   const parsed = parseChannelUrl(channelUrl);
   if (!parsed) throw new Error('Invalid YouTube channel URL');
+
+  onProgress?.({ step: 'Searching for channel', progress: 10 });
+
+  const searchTerm = parsed.type === 'handle' ? parsed.value : channelUrl;
+  const search = await yt.search(searchTerm, { type: 'channel' });
+  const channel = search?.items?.[0];
+  if (!channel) throw new Error('Channel not found');
+
+  onProgress?.({ step: 'Fetching videos', progress: 30 });
+
+  const allVideos = [];
+  let hasMore = true;
+  while (hasMore && allVideos.length < maxVideos) {
+    const page = await channel.videos.next();
+    const items = Array.isArray(page) ? page : page?.items || [];
+    for (const v of items) {
+      if (allVideos.length >= maxVideos) break;
+      allVideos.push(v);
+    }
+    hasMore = items.length > 0 && allVideos.length < maxVideos && channel.videos?.continuation;
+  }
+
+  const videos = allVideos.slice(0, maxVideos);
+  const results = [];
+  const total = videos.length;
+
+  for (let i = 0; i < videos.length; i++) {
+    const v = videos[i];
+    const progress = 40 + Math.round((i / total) * 55);
+    onProgress?.({ step: `Processing ${v.title || 'video'}`, progress });
+
+    let transcript = null;
+    try {
+      const { YoutubeTranscript } = require('youtube-transcript');
+      const t = await YoutubeTranscript.fetchTranscript(v.id);
+      transcript = t ? t.map((x) => x.text).join(' ') : null;
+    } catch {
+      // transcript optional
+    }
+
+    const thumbObj = Array.isArray(v.thumbnails) ? v.thumbnails[0] : v.thumbnails;
+    const thumb = thumbObj?.url || null;
+
+    results.push({
+      video_id: v.id,
+      video_url: `https://www.youtube.com/watch?v=${v.id}`,
+      title: v.title || '',
+      description: v.description || '',
+      transcript,
+      duration: v.duration ? `${Math.floor(v.duration / 60)}m ${v.duration % 60}s` : null,
+      duration_seconds: v.duration || null,
+      release_date: v.uploadDate || null,
+      view_count: v.viewCount || 0,
+      like_count: v.likeCount || 0,
+      comment_count: v.commentCount || 0,
+      thumbnail: thumb,
+    });
+  }
+
+  onProgress?.({ step: 'Done', progress: 100 });
+  return results;
+}
+
+// Main export: fetch channel videos with metadata
+async function fetchChannelVideos(channelUrl, maxVideos = 10, onProgress) {
+  const parsed = parseChannelUrl(channelUrl);
+  if (!parsed) throw new Error('Invalid YouTube channel URL');
+
+  // Use youtubei (no key) when API_KEY is not set or empty
+  if (!API_KEY || API_KEY === '') {
+    return fetchWithYoutubei(channelUrl, maxVideos, onProgress);
+  }
 
   onProgress?.({ step: 'Resolving channel', progress: 0 });
 

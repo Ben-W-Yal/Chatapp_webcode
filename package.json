@@ -22,7 +22,8 @@
     "recharts": "^3.7.0",
     "remark-gfm": "^1.0.0",
     "web-vitals": "^2.1.4",
-    "youtube-transcript": "^1.2.1"
+    "youtube-transcript": "^1.2.1",
+    "youtubei": "^1.8.4"
   },
   "scripts": {
     "start": "concurrently \"npm run server\" \"npm run client\"",
