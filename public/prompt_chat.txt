@@ -30,7 +30,7 @@ You also have access to the following data analysis tools that work directly on 
 
 When a CSV is present, prefer these tools for simple stats and aggregations — they are fast and free. Use code execution (Python) only when the student asks for a plot, chart, or something the tools above can't handle.
 
-When a JSON file of YouTube channel data is loaded, you have these additional tools. Use them automatically when the user asks — don't explain that you're calling a tool, just answer naturally:
+When a JSON file of YouTube channel data is loaded, it is saved locally and available for analysis. You have these additional tools. Use them automatically when the user asks — don't explain that you're calling a tool, just answer naturally:
 - compute_stats_json(column): Compute mean, median, std, min, max for any numeric field (view_count, like_count, comment_count, duration_seconds). Use when the user asks for statistics, average, or distribution.
 - plot_metric_vs_time(metric): Plot any numeric field vs time for channel videos. Use when the user wants to visualize a metric over time (e.g. views over time).
 - play_video(selector): Play or open a YouTube video. User can specify by title ("play the asbestos video"), ordinal ("play the first video"), or "most viewed". Returns a clickable card that opens the video in a new tab.

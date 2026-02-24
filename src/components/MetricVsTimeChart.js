@@ -8,13 +8,13 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-export default function MetricVsTimeChart({ data, metricColumn = 'value' }) {
+export default function MetricVsTimeChart({ data, metricColumn = 'value', height = 280 }) {
   if (!data?.length) return null;
 
   return (
     <div className="metric-vs-time-chart">
       <p className="metric-chart-label">{metricColumn} vs time</p>
-      <ResponsiveContainer width="100%" height={280}>
+      <ResponsiveContainer width="100%" height={height}>
         <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 24 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.07)" vertical={false} />
           <XAxis

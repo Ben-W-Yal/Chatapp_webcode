@@ -44,18 +44,52 @@ app.get('/', (req, res) => {
 
 // ── YouTube channel download ───────────────────────────────────────────────────
 
-// ── Image generation (placeholder — requires Gemini Imagen or similar API) ─ ─
+// ── Image generation (Gemini Imagen) ───────────────────────────────────────────
 
 app.post('/api/generate-image', async (req, res) => {
   try {
     const { prompt, anchorImageBase64 } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt required' });
-    // TODO: Integrate with Gemini Imagen or similar API for real image generation
-    // For now return a placeholder
-    const placeholder = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-    res.json({ imageBase64: placeholder, mimeType: 'image/png' });
+
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey?.trim()) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY or REACT_APP_GEMINI_API_KEY required for image generation' });
+    }
+
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey });
+
+    let imageBase64;
+    if (anchorImageBase64) {
+      // Use Gemini 2.5 Flash Image for image + text → image (supports reference/editing)
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: [
+          { inlineData: { mimeType: 'image/png', data: anchorImageBase64 } },
+          { text: prompt },
+        ],
+        config: { responseModalities: ['TEXT', 'IMAGE'] },
+      });
+      const imgPart = response.candidates?.[0]?.content?.parts?.find((p) => p.inlineData);
+      imageBase64 = imgPart?.inlineData?.data;
+    } else {
+      // Use Imagen 4 for text-only generation
+      const response = await ai.models.generateImages({
+        model: 'imagen-4.0-generate-001',
+        prompt,
+        config: { numberOfImages: 1 },
+      });
+      imageBase64 = response?.generatedImages?.[0]?.image?.imageBytes;
+    }
+
+    if (!imageBase64) {
+      return res.status(500).json({ error: 'Image generation failed — no image returned. The model may have blocked the content.' });
+    }
+
+    res.json({ imageBase64, mimeType: 'image/png' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[generate-image]', err.message);
+    res.status(500).json({ error: err.message || 'Image generation failed' });
   }
 });
 
@@ -63,7 +97,7 @@ app.post('/api/youtube/channel', async (req, res) => {
   try {
     const { url, maxVideos = 10, saveToPublic } = req.body;
     if (!url) return res.status(400).json({ error: 'Channel URL required' });
-    const max = Math.min(Math.max(parseInt(maxVideos, 10) || 10, 100), 100);
+    const max = Math.min(Math.max(parseInt(maxVideos, 10) || 10, 1), 100);
     const videos = await fetchChannelVideos(url, max);
     if (saveToPublic && videos.length > 0) {
       const publicDir = path.join(__dirname, '..', 'public');

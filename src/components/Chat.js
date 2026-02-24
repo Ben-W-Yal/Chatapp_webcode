@@ -128,6 +128,8 @@ export default function Chat({ user, onLogout }) {
   const [streaming, setStreaming] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [lightboxImage, setLightboxImage] = useState(null);   // { src, mimeType } for generated image
+  const [lightboxChart, setLightboxChart] = useState(null);  // { data, metricColumn } for plot enlarge
 
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -386,19 +388,25 @@ export default function Chat({ user, onLogout }) {
     // Base64 is only worth sending when Gemini will actually run Python
     const needsBase64 = !!capturedCsv && wantPythonOnly;
     // Mode selection:
-    //   useTools        — CSV loaded + no Python needed → client-side JS tools (free, fast)
+    //   useTools        — CSV/JSON loaded, image attached, or user wants to generate image → client-side JS tools (incl. generateImage)
     //   useCodeExecution — Python explicitly needed (regression, histogram, etc.)
     //   else            — Google Search streaming (also used for "tell me about this file")
-    const useTools = (!!sessionCsvRows || !!sessionJsonData) && !wantPythonOnly && !wantCode && !capturedCsv;
+    const IMAGE_KEYWORDS = /\b(generate|create|make|draw|imagine|picture|image|photo|illustrat|paint)\b/i;
+    const wantImage = IMAGE_KEYWORDS.test(text);
+    const useTools =
+      (!!sessionCsvRows || !!sessionJsonData || !!images.length || wantImage) &&
+      !wantPythonOnly &&
+      !wantCode &&
+      !capturedCsv;
     const useCodeExecution = wantPythonOnly || wantCode;
 
     // ── Build prompt ─────────────────────────────────────────────────────────
     // sessionSummary: auto-computed column stats, included with every message
     const sessionSummary = csvDataSummary || '';
     // slimCsv: key columns only (text, type, metrics, engagement) as plain readable CSV
-    // ~6-10k tokens — Gemini reads it directly so it can answer from context or call tools
+    // Limit to ~50k chars to avoid token overflow
     const slimCsvBlock = sessionSlimCsv
-      ? `\n\nFull dataset (key columns):\n\`\`\`csv\n${sessionSlimCsv}\n\`\`\``
+      ? `\n\nFull dataset (key columns):\n\`\`\`csv\n${sessionSlimCsv.slice(0, 50000)}${sessionSlimCsv.length > 50000 ? '\n... (truncated)' : ''}\n\`\`\``
       : '';
 
     const csvPrefix = capturedCsv
@@ -429,12 +437,19 @@ ${sessionSummary}${slimCsvBlock}
       ? `[CSV columns: ${sessionCsvHeaders?.join(', ')}]\n\n${sessionSummary}\n\n---\n\n`
       : '';
 
-    const jsonPrefix = sessionJsonData?.length
+    // Limit JSON to 10 items, strip long transcript/description to avoid token overflow
+    const jsonForPrompt = sessionJsonData?.length
+      ? sessionJsonData.slice(0, 10).map((item) => {
+          const { transcript, description, ...rest } = item;
+          return { ...rest, transcript: transcript ? '[truncated]' : '', description: (description || '').slice(0, 200) };
+        })
+      : [];
+    const jsonPrefix = jsonForPrompt.length
       ? `[JSON File: "${capturedJson?.name || 'channel-data.json'}" | ${sessionJsonData.length} items | ${capturedJson?.summary || 'channel videos'}
 
 \`\`\`json
-${JSON.stringify(sessionJsonData.length > 20 ? sessionJsonData.slice(0, 20) : sessionJsonData, null, 2)}
-${sessionJsonData.length > 20 ? `\n... (${sessionJsonData.length - 20} more items)` : ''}
+${JSON.stringify(jsonForPrompt, null, 2)}
+${sessionJsonData.length > 10 ? `\n... (${sessionJsonData.length - 10} more items)` : ''}
 \`\`\`
 
 ---
@@ -497,14 +512,15 @@ ${sessionJsonData.length > 20 ? `\n... (${sessionJsonData.length - 20} more item
     try {
       if (useTools) {
         // ── Function-calling path: Gemini picks tool + args, JS executes ──────
-        console.log('[Chat] useTools=true | rows:', sessionCsvRows.length, '| headers:', sessionCsvHeaders);
+        console.log('[Chat] useTools=true | rows:', (sessionCsvRows || sessionJsonData || []).length, '| headers:', sessionCsvHeaders?.length || 0, '| images:', capturedImages.length);
         const headers = sessionCsvHeaders || (sessionJsonData?.length ? Object.keys(sessionJsonData[0] || {}) : []);
         const rows = sessionCsvRows || sessionJsonData || [];
         const { text: answer, charts: returnedCharts, toolCalls: returnedCalls } = await chatWithCsvTools(
           history,
           promptForGemini,
           headers,
-          (toolName, args) => executeTool(toolName, args, rows)
+          (toolName, args) => executeTool(toolName, args, rows, capturedImages),
+          imageParts
         );
         streamContentRef.current.full = answer;
         toolCharts = returnedCharts || [];
@@ -745,11 +761,29 @@ ${sessionJsonData.length > 20 ? `\n... (${sessionJsonData.length - 20} more item
                     metricColumn={chart.metricColumn}
                   />
                 ) : chart._chartType === 'metricVsTime' ? (
-                  <MetricVsTimeChart
+                  <div
                     key={ci}
-                    data={chart.data}
-                    metricColumn={chart.metricColumn}
-                  />
+                    className="metric-vs-time-chart-wrap"
+                    onClick={() => setLightboxChart({ data: chart.data, metricColumn: chart.metricColumn })}
+                  >
+                    <MetricVsTimeChart data={chart.data} metricColumn={chart.metricColumn} />
+                    <button
+                      type="button"
+                      className="chart-download-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const csv = [`date,${chart.metricColumn}`, ...chart.data.map((r) => `${r.date},${r.value}`)].join('\n');
+                        const blob = new Blob([csv], { type: 'text/csv' });
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = `${chart.metricColumn}-vs-time.csv`;
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                      }}
+                    >
+                      Download
+                    </button>
+                  </div>
                 ) : null
               )}
 
@@ -779,6 +813,12 @@ ${sessionJsonData.length > 20 ? `\n... (${sessionJsonData.length - 20} more item
                       src={`data:${tc.result.mimeType || 'image/png'};base64,${tc.result.data}`}
                       alt="Generated"
                       className="generated-image"
+                      onClick={() =>
+                        setLightboxImage({
+                          src: `data:${tc.result.mimeType || 'image/png'};base64,${tc.result.data}`,
+                          mimeType: tc.result.mimeType || 'image/png',
+                        })
+                      }
                     />
                     <a
                       href={`data:${tc.result.mimeType || 'image/png'};base64,${tc.result.data}`}
@@ -817,6 +857,69 @@ ${sessionJsonData.length > 20 ? `\n... (${sessionJsonData.length - 20} more item
         </div>
 
         {dragOver && <div className="chat-drop-overlay">Drop CSV, JSON, or images here</div>}
+
+        {/* Lightbox: generated image enlarge */}
+        {lightboxImage && (
+          <div
+            className="chat-lightbox-overlay"
+            onClick={() => setLightboxImage(null)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Escape' && setLightboxImage(null)}
+            aria-label="Close"
+          >
+            <img
+              src={lightboxImage.src}
+              alt="Generated (enlarged)"
+              className="chat-lightbox-image"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <a
+              href={lightboxImage.src}
+              download="generated-image.png"
+              className="chat-lightbox-download"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Download
+            </a>
+          </div>
+        )}
+
+        {/* Lightbox: chart enlarge */}
+        {lightboxChart && (
+          <div
+            className="chat-lightbox-overlay"
+            onClick={() => setLightboxChart(null)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Escape' && setLightboxChart(null)}
+            aria-label="Close"
+          >
+            <div className="chat-lightbox-chart" onClick={(e) => e.stopPropagation()}>
+              <MetricVsTimeChart
+                data={lightboxChart.data}
+                metricColumn={lightboxChart.metricColumn}
+                height={400}
+              />
+              <button
+                type="button"
+                className="chart-download-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const csv = [`date,${lightboxChart.metricColumn}`, ...lightboxChart.data.map((r) => `${r.date},${r.value}`)].join('\n');
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const a = document.createElement('a');
+                  a.href = URL.createObjectURL(blob);
+                  a.download = `${lightboxChart.metricColumn}-vs-time.csv`;
+                  a.click();
+                  URL.revokeObjectURL(a.href);
+                }}
+              >
+                Download
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Input area ── */}
         <div className="chat-input-area">

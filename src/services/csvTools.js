@@ -327,8 +327,8 @@ export const computeDatasetSummary = (rows, headers) => {
 const getApi = () => (typeof process !== 'undefined' && process.env?.REACT_APP_API_URL) || '';
 
 // ── Client-side tool executor ─────────────────────────────────────────────────
-
-export const executeTool = async (toolName, args, rows) => {
+// userImages: optional array of { data, mimeType } from the current message (for generateImage anchor)
+export const executeTool = async (toolName, args, rows, userImages = []) => {
   const availableHeaders = rows.length ? Object.keys(rows[0]) : [];
   console.group(`[CSV Tool] ${toolName}`);
   console.log('args:', args);
@@ -486,12 +486,14 @@ export const executeTool = async (toolName, args, rows) => {
 
     case 'generateImage': {
       try {
+        // Use user's image as anchor if they attached one (AI can't pass base64 in function args)
+        const anchorBase64 = args.anchorImageBase64 || userImages[0]?.data || null;
         const res = await fetch(`${getApi()}/api/generate-image`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: args.prompt,
-            anchorImageBase64: args.anchorImageBase64 || null,
+            anchorImageBase64: anchorBase64,
           }),
         });
         const data = await res.json();

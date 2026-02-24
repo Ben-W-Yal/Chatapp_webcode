@@ -128,16 +128,18 @@ export const streamChat = async function* (history, newMessage, imageParts = [],
 // executeFn(toolName, args) → plain JS object with the result
 // Returns the final text response from the model.
 
-export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeFn) => {
+export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeFn, imageParts = []) => {
   const systemInstruction = await loadSystemPrompt();
   const model = genAI.getGenerativeModel({
     model: MODEL,
     tools: [{ functionDeclarations: CSV_TOOL_DECLARATIONS }],
   });
 
-  const baseHistory = history.map((m) => ({
+  // Limit history to last 20 exchanges to avoid token overflow (1M limit)
+  const recentHistory = history.slice(-20);
+  const baseHistory = recentHistory.map((m) => ({
     role: m.role === 'user' ? 'user' : 'model',
-    parts: [{ text: m.content || '' }],
+    parts: [{ text: (m.content || '').slice(0, 8000) }],
   }));
 
   const chatHistory = systemInstruction
@@ -158,11 +160,31 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
     ? `[CSV columns: ${csvHeaders.join(', ')}]\n\n${newMessage}`
     : newMessage;
 
-  let response = (await chat.sendMessage(msgWithContext)).response;
+  // Build message parts: text + any images (so Gemini sees the reference image for generateImage)
+  const msgParts = [
+    { text: msgWithContext },
+    ...imageParts.map((img) => ({
+      inlineData: { mimeType: img.mimeType || 'image/png', data: img.data },
+    })),
+  ].filter((p) => p.text !== undefined || p.inlineData !== undefined);
+
+  let response = (await chat.sendMessage(msgParts)).response;
 
   // Accumulate chart payloads and a log of every tool call made
   const charts = [];
   const toolCalls = [];
+
+  // Sanitize tool result for API — strip large payloads to avoid token limit (1M)
+  const sanitizeForApi = (result) => {
+    if (!result) return result;
+    if (result._generatedImage) {
+      return { _generatedImage: true, message: 'Image generated successfully. It is displayed to the user.' };
+    }
+    if (result._chartType && result.data?.length > 50) {
+      return { ...result, data: result.data.slice(0, 50), _truncated: true };
+    }
+    return result;
+  };
 
   // Function-calling loop (Gemini may chain multiple tool calls)
   for (let round = 0; round < 5; round++) {
@@ -175,7 +197,7 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
     const toolResult = await Promise.resolve(executeFn(name, args));
     console.log('[CSV Tool result]', toolResult);
 
-    // Log the call for persistence
+    // Log the call for persistence (full result for UI)
     toolCalls.push({ name, args, result: toolResult });
 
     // Capture chart payloads so the UI can render them
@@ -183,9 +205,11 @@ export const chatWithCsvTools = async (history, newMessage, csvHeaders, executeF
       charts.push(toolResult);
     }
 
+    // Send sanitized result to API to avoid token limit
+    const apiResult = sanitizeForApi(toolResult);
     response = (
       await chat.sendMessage([
-        { functionResponse: { name, response: { result: toolResult } } },
+        { functionResponse: { name, response: { result: apiResult } } },
       ])
     ).response;
   }

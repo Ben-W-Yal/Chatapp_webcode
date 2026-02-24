@@ -10,19 +10,68 @@ function api(path, params = {}) {
   return fetch(`${BASE}${path}?${q}`).then((r) => r.json());
 }
 
-// Parse channel URL to get handle or channel ID
-function parseChannelUrl(url) {
-  const trimmed = String(url || '').trim();
-  // https://www.youtube.com/@veritasium or youtube.com/@handle
-  const handleMatch = trimmed.match(/youtube\.com\/@([\w-]+)/i);
+// Strip invisible Unicode chars that can appear when pasting (zero-width space, etc.)
+// Also decode URL-encoded chars (e.g. %40 -> @) so pasted URLs are recognized
+function sanitizeUrl(url) {
+  let s = String(url || '')
+    .replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '') // zero-width space, BOM, soft hyphen
+    .trim()
+    .replace(/\s/g, '');
+  try {
+    s = decodeURIComponent(s).trim();
+  } catch {
+    // leave as-is if decoding fails (e.g. malformed %)
+  }
+  return s;
+}
+
+// Parse channel URL or video URL; returns { type, value } or null
+// Handles: @handle, /channel/UCxxx, /c/name, /user/name, video URLs
+function parseChannelOrVideoUrl(url) {
+  const trimmed = sanitizeUrl(url);
+  if (!trimmed) return null;
+
+  // Video URLs: youtube.com/watch?v=xxx, youtu.be/xxx, youtube.com/shorts/xxx
+  const watchMatch = trimmed.match(
+    /(?:youtube\.com\/watch\?.*v=|youtube\.com\/shorts\/|youtu\.be\/)([\w-]{11})/i
+  );
+  if (watchMatch) return { type: 'videoId', value: watchMatch[1] };
+
+  // @handle: youtube.com/@handle (with optional /videos, /featured, /streams, etc.)
+  // Use [^/\s?#&]+ to support handles with various chars (incl. unicode)
+  const handleMatch = trimmed.match(/youtube\.com\/@([^/\s?#&]+)/i);
   if (handleMatch) return { type: 'handle', value: handleMatch[1] };
-  // https://www.youtube.com/channel/UCxxxx
+
+  // Channel ID: youtube.com/channel/UCxxxx (UC + 22 base64url chars)
   const channelMatch = trimmed.match(/youtube\.com\/channel\/([\w-]+)/i);
   if (channelMatch) return { type: 'channelId', value: channelMatch[1] };
-  // Just @handle
-  const atMatch = trimmed.match(/^@?([\w-]+)$/);
+
+  // Custom / legacy: youtube.com/c/Name or youtube.com/user/username
+  const customMatch = trimmed.match(/youtube\.com\/(?:c|user)\/([^/\s?#&]+)/i);
+  if (customMatch) return { type: 'handle', value: customMatch[1] };
+
+  // m.youtube.com variants (mobile)
+  const mHandleMatch = trimmed.match(/m\.youtube\.com\/@([^/\s?#&]+)/i);
+  if (mHandleMatch) return { type: 'handle', value: mHandleMatch[1] };
+
+  const mChannelMatch = trimmed.match(/m\.youtube\.com\/channel\/([\w-]+)/i);
+  if (mChannelMatch) return { type: 'channelId', value: mChannelMatch[1] };
+
+  // Just @handle or handle (no URL)
+  const atMatch = trimmed.match(/^@?([\w.-]+)$/);
   if (atMatch) return { type: 'handle', value: atMatch[1] };
+
+  // Fallback: @handle in a youtube-like URL (catches unusual formats)
+  const atInUrl = trimmed.match(/youtube[^/]*\/@([^/\s?#&]+)/i);
+  if (atInUrl) return { type: 'handle', value: atInUrl[1] };
+
   return null;
+}
+
+// Alias for backward compatibility
+function parseChannelUrl(url) {
+  const parsed = parseChannelOrVideoUrl(url);
+  return parsed && parsed.type !== 'videoId' ? parsed : null;
 }
 
 // Resolve handle or channel ID to channel ID
@@ -107,18 +156,26 @@ async function getTranscript(videoId) {
 
 // ── Fallback: youtubei (no API key) ───────────────────────────────────────────
 
-async function fetchWithYoutubei(channelUrl, maxVideos, onProgress) {
+async function fetchWithYoutubei(inputUrl, maxVideos, onProgress) {
   const { Client } = require('youtubei');
   const yt = new Client();
 
-  const parsed = parseChannelUrl(channelUrl);
-  if (!parsed) throw new Error('Invalid YouTube channel URL');
+  const parsed = parseChannelOrVideoUrl(inputUrl);
+  if (!parsed) throw new Error('Invalid YouTube URL. Use a channel URL (e.g. youtube.com/@channelname) or a video URL (e.g. youtube.com/watch?v=xxx)');
 
   onProgress?.({ step: 'Searching for channel', progress: 10 });
 
-  const searchTerm = parsed.type === 'handle' ? parsed.value : channelUrl;
-  const search = await yt.search(searchTerm, { type: 'channel' });
-  const channel = search?.items?.[0];
+  let channel;
+  if (parsed.type === 'videoId') {
+    const video = await yt.getVideo(parsed.value);
+    if (!video?.channel?.id) throw new Error('Could not get channel from video');
+    channel = await yt.getChannel(video.channel.id);
+  } else if (parsed.type === 'channelId') {
+    channel = await yt.getChannel(parsed.value);
+  } else {
+    const search = await yt.search(parsed.value, { type: 'channel' });
+    channel = search?.items?.[0];
+  }
   if (!channel) throw new Error('Channel not found');
 
   onProgress?.({ step: 'Fetching videos', progress: 30 });
@@ -178,11 +235,12 @@ async function fetchWithYoutubei(channelUrl, maxVideos, onProgress) {
 
 // Main export: fetch channel videos with metadata
 // Uses youtubei — no API key required.
-async function fetchChannelVideos(channelUrl, maxVideos = 10, onProgress) {
-  const parsed = parseChannelUrl(channelUrl);
-  if (!parsed) throw new Error('Invalid YouTube channel URL');
+// Accepts channel URLs (youtube.com/@handle, youtube.com/channel/UCxxx) or video URLs (youtube.com/watch?v=xxx)
+async function fetchChannelVideos(inputUrl, maxVideos = 10, onProgress) {
+  const parsed = parseChannelOrVideoUrl(inputUrl);
+  if (!parsed) throw new Error('Invalid YouTube URL. Use a channel or video URL.');
 
-  return fetchWithYoutubei(channelUrl, maxVideos, onProgress);
+  return fetchWithYoutubei(inputUrl, maxVideos, onProgress);
 }
 
 module.exports = { fetchChannelVideos };

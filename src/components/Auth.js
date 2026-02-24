@@ -7,7 +7,6 @@ export default function Auth({ onLogin }) {
   const [username, setUsername] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -19,11 +18,10 @@ export default function Auth({ onLogin }) {
     try {
       const name = username.trim().toLowerCase();
       if (mode === 'create') {
-        await createUser(name, password, email.trim(), firstName.trim(), lastName.trim());
+        await createUser(name, password, '', firstName.trim(), lastName.trim());
         setError('');
         setMode('login');
         setPassword('');
-        setEmail('');
         setFirstName('');
         setLastName('');
       } else {
@@ -79,16 +77,6 @@ export default function Auth({ onLogin }) {
             required
             autoComplete="username"
           />
-          {mode === 'create' && (
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoComplete="email"
-            />
-          )}
           <input
             type="password"
             placeholder="Password"

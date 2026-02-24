@@ -73,7 +73,7 @@ export default function YouTubeDownload() {
         <div className="youtube-form">
           <input
             type="url"
-            placeholder="https://www.youtube.com/@veritasium"
+            placeholder="https://www.youtube.com/@channel or youtube.com/watch?v=xxx"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             disabled={loading}
